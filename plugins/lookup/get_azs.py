@@ -1,4 +1,8 @@
-from ansible import utils, errors
+from __future__ import (absolute_import, division, print_function)
+__metaclass__ = type
+
+from ansible.errors import AnsibleError
+from ansible.plugins.lookup import LookupBase
 import boto.ec2
 import os
 import sys
@@ -6,7 +10,7 @@ import time
 import pickle
 
 # region/stack/param
-class LookupModule(object):
+class LookupModule(LookupBase):
   def __init__(self, basedir=None, **kwargs):
     self.basedir = basedir
     self.cache_dir = os.path.join(os.environ['HOME'],'.get_azs')
@@ -35,7 +39,7 @@ class LookupModule(object):
         fh = open(regions_cache, 'w')
         pickle.dump(regions, fh)
       except:
-        raise errors.AnsibleError('Couldn\'t retrieve aws regions')
+        raise AnsibleError('Couldn\'t retrieve aws regions')
 
     return regions
 
@@ -65,20 +69,20 @@ class LookupModule(object):
       if terms in regions:
         region = terms
       else:
-        raise errors.AnsibleError('%s is not a valid aws region' % terms)
+        raise AnsibleError('%s is not a valid aws region' % terms)
 
     else:
       if 'AWS_REGION' in os.environ:
         region = os.environ['AWS_REGION']
         if not region in regions:
-          raise errors.AnsibleError('%s is not a valid aws region' % region)
+          raise AnsibleError('%s is not a valid aws region' % region)
       else:
-        raise errors.AnsibleError('aws region not found in argument or AWS_REGION env var')
+        raise AnsibleError('aws region not found in argument or AWS_REGION env var')
 
     azs = []
     azs = self._get_azs(region)
 
     if len(azs) == 0:
-      raise errors.AnsibleError('Nothing was retured by lookup')
+      raise AnsibleError('Nothing was retured by lookup')
 
     return azs

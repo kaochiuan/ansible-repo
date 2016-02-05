@@ -1,4 +1,8 @@
-from ansible import utils, errors
+from __future__ import (absolute_import, division, print_function)
+__metaclass__ = type
+
+from ansible.errors import AnsibleError
+from ansible.plugins.lookup import LookupBase
 import boto.ec2
 import boto.cloudformation
 import os
@@ -7,7 +11,7 @@ import time
 import pickle
 
 # region/stack/param
-class LookupModule(object):
+class LookupModule(LookupBase):
   def __init__(self, basedir=None, **kwargs):
     self.basedir = basedir
     self.cache_dir = os.path.join(os.environ['HOME'],'.stack_outputs')
@@ -36,7 +40,7 @@ class LookupModule(object):
         fh = open(regions_cache, 'w')
         pickle.dump(regions, fh)
       except:
-        raise errors.AnsibleError('Couldn\'t retrieve aws regions')
+        raise AnsibleError('Couldn\'t retrieve aws regions')
 
     return regions
 
@@ -63,7 +67,11 @@ class LookupModule(object):
 
     regions = self.get_regions()
 
-    args = terms.split('/')
+    if len(terms) == 1:
+        args = terms[0].split('/')
+    else:
+        args = terms
+ 
     if args[0] in regions:
       region = args[0]
       stack_name = args[1]
@@ -76,7 +84,7 @@ class LookupModule(object):
         stack_name = args[0]
         keys = args[1:]
       else:
-        raise errors.AnsibleError('aws region not found in argument or AWS_REGION env var')
+        raise AnsibleError('aws region not found in argument or AWS_REGION env var')
 
     stack_outputs = self.get_stack_info(region, stack_name)
     outputs = []
@@ -87,6 +95,6 @@ class LookupModule(object):
           outputs.append(obj.value)
 
     if len(outputs) == 0:
-      raise errors.AnsibleError('Nothing was retured by lookup')
+      raise AnsibleError('Nothing was retured by lookup')
 
     return outputs
