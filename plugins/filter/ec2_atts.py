@@ -1,5 +1,9 @@
 # Filters to return ec2 related attributes
-from ansible import utils, errors
+
+from __future__ import (absolute_import, division, print_function)
+__metaclass__ = type
+
+from ansible.errors import AnsibleError
 import json
 import os
 import yaml
@@ -36,14 +40,14 @@ class GetRegion():
         fh = open(regions_cache, 'w')
         pickle.dump(regions, fh)
       except:
-        raise errors.AnsibleError('Couldn\'t retrieve aws regions')
+        raise AnsibleError('Couldn\'t retrieve aws regions')
 
     return regions
 
 # main
 def eip_allocid(ip,region=None):
   ec2 = GetRegion()
-  regions = ec2.get_regions() 
+  regions = ec2.get_regions()
 
   if region:
     region = region
@@ -51,21 +55,21 @@ def eip_allocid(ip,region=None):
     if 'AWS_REGION' in os.environ:
       region = os.environ['AWS_REGION']
     else:
-      raise errors.AnsibleError('aws region not found in argument or AWS_REGION env var')
+      raise AnsibleError('aws region not found in argument or AWS_REGION env var')
 
   if not region in regions:
-    raise errors.AnsibleError('%s is not a valid aws region' % aws_region)
+    raise AnsibleError('%s is not a valid aws region' % aws_region)
 
   ec2 = boto.ec2.connect_to_region(region)
 
   try:
     eip_allocid = ec2.get_all_addresses(filters={'public-ip': ip})[0].allocation_id
   except Exception, e:
-    raise errors.AnsibleError('Couldn\'t retrieve eip allocation id. Error was %s' % str(e))
+    raise AnsibleError('Couldn\'t retrieve eip allocation id. Error was %s' % str(e))
 
   m = re.search('^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$', ip)
   if not m:
-      raise errors.AnsibleError('"%s" is not a valid ip address.' % ip)
+      raise AnsibleError('"%s" is not a valid ip address.' % ip)
 
   return eip_allocid
 
