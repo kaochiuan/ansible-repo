@@ -40,8 +40,8 @@ class LookupModule(LookupBase):
     Return a list of availability zones for a region.
     """
 
-    def __init__(self, basedir=None, **kwargs):
-        self.basedir = basedir
+    def __init__(self, **kwargs):
+
         self.cache_dir = os.path.join(os.environ['HOME'], '.azs_cache')
         self.cache_time = 30
 
@@ -77,8 +77,8 @@ class LookupModule(LookupBase):
             try:
                 fh = open(az_cache, 'w')
                 pickle.dump(az_names, fh)
-            except Exception:
-                az_names = []
+            except Exception, e:
+                raise AnsibleError('Cache error: {}'.format(e.message))
 
         return az_names
 
