@@ -43,7 +43,7 @@ class LookupModule(LookupBase):
     def __init__(self, basedir=None, **kwargs):
         self.basedir = basedir
         self.cache_dir = os.path.join(os.environ['HOME'], '.azs_cache')
-        self.cache_time = 10
+        self.cache_time = 30
 
         super(LookupModule, self).__init__(**kwargs)
 
