@@ -7,9 +7,9 @@
   - name: S3 event notification
     s3_event:
       state: "{{ state | default('present') }}"
-      lambda_function_arn: ingestData
-      id: lambda-s3-myBucket-create-data-log
       bucket: buzz-scanner
+      id: lambda-s3-myBucket-create-data-log
+      lambda_function_arn: ingestData
       prefix: twitter
       suffix: log
       events:

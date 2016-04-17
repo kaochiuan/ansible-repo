@@ -220,26 +220,29 @@ def validate_params(module, aws):
     :return:
     """
 
-    # function_name = module.params['lambda_function_arn']
-    #
-    # # validate function name
-    # if not re.search('^[\w\-:]+$', function_name):
-    #     module.fail_json(
-    #             msg='Function name {0} is invalid. Names must contain only alphanumeric characters and hyphens.'.format(function_name)
-    #     )
-    # if len(function_name) > 64:
-    #     module.fail_json(msg='Function name "{0}" exceeds 64 character limit'.format(function_name))
-    #
-    # # check if 'function_name' needs to be expanded in full ARN format
-    # if not module.params['lambda_function_arn'].startswith('arn:aws:lambda:'):
-    #     function_name = module.params['lambda_function_arn']
-    #     module.params['lambda_function_arn'] = 'arn:aws:lambda:{0}:{1}:function:{2}'.format(aws.region, aws.account_id, function_name)
-    #
-    # qualifier = get_qualifier(module)
-    # if qualifier:
-    #     function_arn = module.params['lambda_function_arn']
-    #     module.params['lambda_function_arn'] = '{0}:{1}'.format(function_arn, qualifier)
-    #
+    function_name = module.params.get('lambda_function_arn')
+    if function_name:
+        # validate function name
+        if not re.search('^[\w\-:]+$', function_name):
+            module.fail_json(
+                    msg='Function name {0} is invalid. Names must contain only alphanumeric characters and hyphens.'.format(function_name)
+            )
+        if len(function_name) > 64:
+            module.fail_json(msg='Function name "{0}" exceeds 64 character limit'.format(function_name))
+
+        # check if 'function_name' needs to be expanded in full ARN format
+        if not module.params['lambda_function_arn'].startswith('arn:aws:lambda:'):
+            function_name = module.params['lambda_function_arn']
+            module.params['lambda_function_arn'] = 'arn:aws:lambda:{0}:{1}:function:{2}'.format(aws.region, aws.account_id, function_name)
+
+        # qualifier = get_qualifier(module)
+        # if qualifier:
+        #     function_arn = module.params['lambda_function_arn']
+        #     module.params['lambda_function_arn'] = '{0}:{1}'.format(function_arn, qualifier)
+
+    topic_arn = module.params.get('topic_arn')
+    queue_arn = module.params.get('queue_arn')
+
     return
 
 
@@ -300,9 +303,6 @@ def get_policy_state(module, aws, sid):
 
     # set API parameters
     api_params = dict(FunctionName=module.params['lambda_function_arn'])
-    qualifier = get_qualifier(module)
-    if qualifier:
-        api_params.update(Qualifier=qualifier)
 
     # check if function policy exists
     try:
@@ -394,17 +394,19 @@ def get_arn(module):
 
     service_arn = None
     service = None
+    service_param = None
 
     for item in ('topic_arn', 'queue_arn', 'lambda_function_arn'):
         if module.params[item]:
             service_arn = module.params[item]
+            service_param = pc(item)
             service = item.split('_', 1)[0]
             break
 
     if not service_arn:
         module.fail_json(msg='Error: exactly one target service ARN is required.')
 
-    return service_configs[service], service_arn
+    return service_configs[service], service_param, service_arn
 
 
 # ---------------------------------------------------------------------------------------------------
@@ -413,7 +415,7 @@ def get_arn(module):
 #
 # ---------------------------------------------------------------------------------------------------
 
-def s3_event_notification(module, aws):
+def state_management(module, aws):
     """
     Adds, updates or deletes s3 event notifications.
 
@@ -423,108 +425,101 @@ def s3_event_notification(module, aws):
     """
 
     client = aws.client('s3')
-    api_params = dict()
     changed = False
     current_state = 'absent'
     state = module.params['state']
+    config_id = module.params['id']
+    bucket = module.params['bucket']
 
-    # check if required sub-parameters are present
-    source_params = module.params['source_params']
-    if not source_params.get('id'):
-        module.fail_json(msg="Source parameter 'id' is required for S3 event notification.")
-
-    if source_params.get('bucket'):
-        api_params = dict(Bucket=source_params['bucket'])
-    else:
-        module.fail_json(msg="Source parameter 'bucket' is required for S3 event notification.")
+    api_params = dict(Bucket=module.params['bucket'])
 
     # check if event notifications exist
     try:
         facts = client.get_bucket_notification_configuration(**api_params)
         facts.pop('ResponseMetadata')
-    except ClientError as e:
+    except (ClientError, ParamValidationError, MissingParametersError) as e:
+        facts = None
         module.fail_json(msg='Error retrieving s3 event notification configuration: {0}'.format(e))
 
+    configurations, service_param, service_arn = get_arn(module)
 
-    configurations, service_arn = get_arn(module)
-
-    current_lambda_configs = list()
+    current_configs = list()
     matching_id_config = dict()
 
+    if configurations in facts:
+        current_configs = facts.pop(configurations)
 
-    if 'LambdaFunctionConfigurations' in facts:
-        current_lambda_configs = facts.pop('LambdaFunctionConfigurations')
-
-        for config in current_lambda_configs:
-            if config['Id'] == source_params['id']:
+        for config in current_configs:
+            if config['Id'] == config_id:
                 matching_id_config = config
-                current_lambda_configs.remove(config)
+                current_configs.remove(config)
                 current_state = 'present'
                 break
 
     if state == 'present':
         # build configurations
-        new_configuration = dict(Id=source_params.get('id'))
-        new_configuration.update(LambdaFunctionArn=module.params['lambda_function_arn'])
+        new_configuration = dict(Id=config_id)
+        new_configuration[service_param] = service_arn
 
         filter_rules = []
-        if source_params.get('prefix'):
-            filter_rules.append(dict(Name='Prefix', Value=str(source_params.get('prefix'))))
-        if source_params.get('suffix'):
-            filter_rules.append(dict(Name='Suffix', Value=str(source_params.get('suffix'))))
+        if module.params.get('prefix'):
+            filter_rules.append(dict(Name='Prefix', Value=str(module.params['prefix'])))
+        if module.params.get('suffix'):
+            filter_rules.append(dict(Name='Suffix', Value=str(module.params['suffix'])))
         if filter_rules:
             new_configuration.update(Filter=dict(Key=dict(FilterRules=filter_rules)))
-        if source_params.get('events'):
-            new_configuration.update(Events=source_params['events'])
+
+        new_configuration.update(Events=module.params['events'])
 
         if current_state == 'present':
 
             # check if source event configuration has changed
             if ordered_obj(matching_id_config) == ordered_obj(new_configuration):
-                current_lambda_configs.append(matching_id_config)
+                current_configs.append(matching_id_config)
             else:
-                # update s3 event notification for lambda
-                current_lambda_configs.append(new_configuration)
-                facts.update(LambdaFunctionConfigurations=current_lambda_configs)
-                api_params = dict(NotificationConfiguration=facts, Bucket=source_params['bucket'])
+                # update s3 event notification
+                current_configs.append(new_configuration)
+                facts[configurations] = current_configs
+                api_params = dict(NotificationConfiguration=facts, Bucket=bucket)
 
                 try:
                     if not module.check_mode:
                         client.put_bucket_notification_configuration(**api_params)
                     changed = True
                 except (ClientError, ParamValidationError, MissingParametersError) as e:
-                    module.fail_json(msg='Error updating s3 event notification for lambda: {0}'.format(e))
+                    module.fail_json(msg='Error updating s3 event notification for {0}: {1}'.format(service_arn, e))
 
         else:
-            # add policy permission before creating the event notification
-            policy = dict(
-                statement_id=source_params['id'],
-                action='lambda:InvokeFunction',
-                principal='s3.amazonaws.com',
-                source_arn='arn:aws:s3:::{0}'.format(source_params['bucket']),
-                source_account=aws.account_id,
-            )
-            assert_policy_state(module, aws, policy, present=True)
+            # add policy permission before creating the event notification (for Lambda only)
+            if module.params['add_permission']:
+                policy = dict(
+                    statement_id=config_id,
+                    action='lambda:InvokeFunction',
+                    principal='s3.amazonaws.com',
+                    source_arn='arn:aws:s3:::{0}'.format(bucket),
+                    source_account=aws.account_id,
+                )
+                assert_policy_state(module, aws, policy, present=True)
 
-            # create s3 event notification for lambda
-            current_lambda_configs.append(new_configuration)
-            facts.update(LambdaFunctionConfigurations=current_lambda_configs)
-            api_params = dict(NotificationConfiguration=facts, Bucket=source_params['bucket'])
+            # create s3 event notification
+            current_configs.append(new_configuration)
+            facts[configurations] = current_configs
+            api_params = dict(NotificationConfiguration=facts, Bucket=bucket)
 
             try:
                 if not module.check_mode:
                     client.put_bucket_notification_configuration(**api_params)
                 changed = True
             except (ClientError, ParamValidationError, MissingParametersError) as e:
-                module.fail_json(msg='Error creating s3 event notification for lambda: {0}'.format(e))
+                module.fail_json(msg='Error creating s3 event notification for {0}: {1}'.format(service_arn, e))
 
     else:
         # state = 'absent'
         if current_state == 'present':
 
-            # delete the lambda event notifications
-            if current_lambda_configs:
-                facts.update(LambdaFunctionConfigurations=current_lambda_configs)
+            # delete the s3 event notifications
+            if current_configs:
+                facts[configurations] = current_configs
 
             api_params.update(NotificationConfiguration=facts)
 
@@ -533,14 +528,16 @@ def s3_event_notification(module, aws):
                     client.put_bucket_notification_configuration(**api_params)
                 changed = True
             except (ClientError, ParamValidationError, MissingParametersError) as e:
-                module.fail_json(msg='Error removing s3 source event configuration: {0}'.format(e))
+                module.fail_json(msg='Error removing s3 source event notification for {0}: {1}'.format(service_arn, e))
 
-            policy = dict(
-                statement_id=source_params['id'],
-            )
-            assert_policy_state(module, aws, policy, present=False)
+            # remove policy permission after removing the event notification (for Lambda only)
+            if module.params['add_permission']:
+                policy = dict(
+                    statement_id=config_id,
+                )
+                assert_policy_state(module, aws, policy, present=False)
 
-    return dict(changed=changed, ansible_facts=dict(lambda_s3_events=current_lambda_configs))
+    return dict(changed=changed, ansible_facts=dict(s3_event=current_configs))
 
 
 # ---------------------------------------------------------------------------------------------------
@@ -556,28 +553,29 @@ def main():
     :return dict: ansible facts
     """
 
-    # produce a list of function suffixes which handle lambda events.
-    this_module = sys.modules[__name__]
-    source_choices = [function.split('_')[-1] for function in dir(this_module) if function.startswith('lambda_event')]
-
     argument_spec = ec2_argument_spec()
     argument_spec.update(dict(
         state=dict(required=False, default='present', choices=['present', 'absent']),
         bucket=dict(required=True, default=None, aliases=['bucket_name', ]),
+        id=dict(required=True, default=None, aliases=['config_id', ]),
         prefix=dict(required=False, default=None),
         suffix=dict(required=False, default=None),
         topic_arn=dict(required=False, default=None, aliases=['topic', ]),
         queue_arn=dict(required=False, default=None, aliases=['queue', ]),
         lambda_function_arn=dict(required=False, default=None, aliases=['function_arn', 'lambda_arn']),
-        events=dict(type='list', required=True, default=None)
+        events=dict(type='list', required=True, default=None),
+        add_permission=dict(type='bool', required=False, default=None)
         )
     )
 
     module = AnsibleModule(
         argument_spec=argument_spec,
         supports_check_mode=True,
-        mutually_exclusive=[['topic_arn', 'queue_arn', 'lambda_function_arn']],
-        required_together=[]
+        required_together=[],
+        mutually_exclusive=[['topic_arn', 'queue_arn', 'lambda_function_arn'],
+                            ['add_permission', 'topic_arn'],
+                            ['add_permission', 'queue_arn']
+                            ]
     )
 
     # validate dependencies
@@ -588,9 +586,7 @@ def main():
 
     # validate_params(module, aws)
 
-    this_module_function = getattr(this_module, 'lambda_event_{}'.format(module.params['event_source'].lower()))
-
-    results = this_module_function(module, aws)
+    results = state_management(module, aws)
 
     module.exit_json(**results)
 
