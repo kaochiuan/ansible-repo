@@ -68,6 +68,15 @@ Use to create, update or delete lambda function source event mappings, which inc
 
 ```
 
+### iam:
+
+Modified *iam* core module which allows specification of a custom trust policy. View pull request [here](https://github.com/ansible/ansible-modules-core/pull/3264)
+
+
+### s3_event:
+
+Work in progress -- creating separate module for S3 events from Lambda_event module.
+
 
 ## Installation
 
