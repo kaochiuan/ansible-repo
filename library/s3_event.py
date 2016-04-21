@@ -29,13 +29,11 @@ except ImportError:
 
 DOCUMENTATION = '''
 ---
-module: lambda_event
-short_description: Creates, updates or deletes AWS Lambda S3 event notifications.
+module: s3_event
+short_description: Creates, updates or deletes AWS S3 event notifications.
 description:
-    - This module allows the management of AWS Lambda function event source mappings such as S3 bucket
-      events, DynamoDB and Kinesis streaming events via the Ansible framework.
-      It is idempotent and supports "Check" mode.  Use module M(lambda) to manage the lambda
-      function itself and M(lambda_alias) to manage function aliases.
+    - This module allows the management of AWS S3 event notifications.
+      It is idempotent and supports "Check" mode.
 version_added: "2.1"
 author: Pierre Jodouin (@pjodouin)
 options:
@@ -50,14 +48,6 @@ options:
     required: true
     default: "present"
     choices: ["present", "absent"]
-  alias:
-    description:
-      - Name of the function alias. Mutually exclusive with C(version).
-    required: true
-  version:
-    description:
-      -  Version of the Lambda function. Mutually exclusive with C(alias).
-    required: false
   event_source:
     description:
       -  Source of the event that triggers the lambda function.
@@ -96,7 +86,7 @@ EXAMPLES = '''
       alias: Dev
       source_params:
         id: lambda-s3-myBucket-create-data-log
-        bucket: buzz-scanner
+        bucket: bucket-name
         prefix: twitter
         suffix: log
         events:
@@ -110,11 +100,6 @@ lambda_s3_events:
     description: list of dictionaries returned by the API describing S3 event mappings
     returned: success
     type: list
-
-lambda_sns_event:
-    description: dictionary returned by the API describing SNS event mapping
-    returned: success
-    type: dict
 
 '''
 
