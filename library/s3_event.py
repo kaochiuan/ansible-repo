@@ -14,9 +14,9 @@
 # You should have received a copy of the GNU General Public License
 # along with Ansible.  If not, see <http://www.gnu.org/licenses/>.
 
-import sys
-import json
-from hashlib import md5
+import re
+# import json
+# from hashlib import md5
 
 try:
     import boto3
@@ -37,32 +37,69 @@ description:
 version_added: "2.1"
 author: Pierre Jodouin (@pjodouin)
 options:
-  lambda_function_arn:
-    description:
-      - The name or ARN of the lambda function.
-    required: true
-    aliases: ['function_name', 'function_arn']
   state:
     description:
       - Describes the desired state and defaults to "present".
     required: true
     default: "present"
     choices: ["present", "absent"]
-  event_source:
+
+  bucket:
     description:
-      -  Source of the event that triggers the lambda function.
+      - Name of source bucket.
     required: true
-    choices: ['s3', 'Kinesis', 'DynamoDB', 'SNS']
-  source_params:
+    default: none
+    aliases: ['bucket_name']
+
+  prefix:
     description:
-      -  Sub-parameters required for event source.
-      -  I(== S3 event source ==)
-      -  C(id) Unique ID for this source event.
-      -  C(bucket) Name of source bucket.
-      -  C(prefix) Bucket prefix (e.g. images/)
-      -  C(suffix) Bucket suffix (e.g. log)
-      -  C(events) List of events (e.g. ['s3:ObjectCreated:Put'])
+      - Bucket prefix (e.g. images/)
+    required: false
+    default: none
+
+  suffix:
+    description:
+      - Bucket suffix (e.g. log)
+    required: false
+    default: none
+
+  id:
+    description:
+      - Unique ID for this source event.
     required: true
+    default: none
+    aliases: [ 'config_id' ]
+
+  topic_arn:
+    description:
+      - The name or ARN of the lambda function, including the alias/version suffix.
+        Mutually exclusive with C(queue_arn) and C(lambda_function_arn).
+    required: false
+    default: none
+    aliases: ['topic']
+
+  queue_arn:
+    description:
+      - The name or ARN of the lambda function, including the alias/version suffix.
+        Mutually exclusive with C(topic_arn) and (lambda_function_arn).
+    required: false
+    default: none
+    aliases: ['queue']
+
+  lambda_function_arn:
+    description:
+      - The name or ARN of the lambda function, including the alias/version suffix.
+        Mutually exclusive with C(queue_arn) and C(topic_arn).
+    required: false
+    default: none
+    aliases: ['function_name', 'function_arn']
+
+  events:
+    description:
+      - List of events (e.g. ['s3:ObjectCreated:Put'])
+    required: true
+    default: none
+
 requirements:
     - boto3
 extends_documentation_fragment:
@@ -78,25 +115,12 @@ EXAMPLES = '''
   vars:
     state: present
   tasks:
-  - name: S3 event mapping
-    lambda_event:
-      state: "{{ state | default('present') }}"
-      event_source: s3
-      function_name: ingestData
-      alias: Dev
-      source_params:
-        id: lambda-s3-myBucket-create-data-log
-        bucket: bucket-name
-        prefix: twitter
-        suffix: log
-        events:
-        - s3:ObjectCreated:Put
 
 '''
 
 RETURN = '''
 ---
-lambda_s3_events:
+s3_events:
     description: list of dictionaries returned by the API describing S3 event mappings
     returned: success
     type: list
@@ -231,145 +255,29 @@ def validate_params(module, aws):
     return
 
 
-def get_qualifier(module):
-    """
-    Returns the function qualifier as a version or alias or None.
-
-    :param module:
-    :return:
-    """
-
-    qualifier = None
-    if module.params['version'] > 0:
-        qualifier = str(module.params['version'])
-    elif module.params['alias']:
-        qualifier = str(module.params['alias'])
-
-    return qualifier
-
-
-def assert_policy_state(module, aws, policy, present=False):
-    """
-    Asserts the desired policy statement is present/absent and adds/removes it accordingly.
-
-    :param module:
-    :param aws:
-    :param policy:
-    :param present:
-    :return:
-    """
-
-    changed = False
-    currently_present = get_policy_state(module, aws, policy['statement_id'])
-
-    if present:
-        if not currently_present:
-            changed = add_policy_permission(module, aws, policy)
-    else:
-        if currently_present:
-            changed = remove_policy_permission(module, aws, policy['statement_id'])
-
-    return changed
-
-
-def get_policy_state(module, aws, sid):
-    """
-    Checks that policy exists and if so, that statement ID is present or absent.
-
-    :param module:
-    :param aws:
-    :param sid:
-    :return:
-    """
-
-    client = aws.client('lambda')
-    policy = dict()
-    present = False
-
-    # set API parameters
-    api_params = dict(FunctionName=module.params['lambda_function_arn'])
-
-    # check if function policy exists
-    try:
-        # get_policy returns a JSON string so must convert to dict before reassigning to its key
-        policy_results = client.get_policy(**api_params)
-        policy = json.loads(policy_results.get('Policy', '{}'))
-
-    except (ClientError, ParamValidationError, MissingParametersError) as e:
-        if not e.response['Error']['Code'] == 'ResourceNotFoundException':
-            module.fail_json(msg='Error retrieving function policy: {0}'.format(e))
-
-    if 'Statement' in policy:
-        # now that we have the policy, check if required permission statement is present
-        for statement in policy['Statement']:
-            if statement['Sid'] == sid:
-                present = True
-                break
-
-    return present
-
-
-def add_policy_permission(module, aws, policy_statement):
-    """
-    Adds a permission statement to the policy.
-
-    :param module:
-    :param aws:
-    :param policy_statement:
-    :return:
-    """
-
-    client = aws.client('lambda')
-    changed = False
-
-    # set API parameters
-    api_params = dict(FunctionName=module.params['lambda_function_arn'])
-    api_params.update(set_api_sub_params(policy_statement))
-    qualifier = get_qualifier(module)
-    if qualifier:
-        api_params.update(Qualifier=qualifier)
-
-    try:
-        if not module.check_mode:
-            client.add_permission(**api_params)
-        changed = True
-    except (ClientError, ParamValidationError, MissingParametersError) as e:
-        module.fail_json(msg='Error adding permission to policy: {0}'.format(e))
-
-    return changed
-
-
-def remove_policy_permission(module, aws, statement_id):
-    """
-    Removed a permission statement from the policy.
-
-    :param module:
-    :param aws:
-    :param statement_id:
-    :return:
-    """
-
-    client = aws.client('lambda')
-    changed = False
-
-    # set API parameters
-    api_params = dict(FunctionName=module.params['lambda_function_arn'])
-    api_params.update(StatementId=statement_id)
-    qualifier = get_qualifier(module)
-    if qualifier:
-        api_params.update(Qualifier=qualifier)
-
-    try:
-        if not module.check_mode:
-            client.remove_permission(**api_params)
-        changed = True
-    except (ClientError, ParamValidationError, MissingParametersError) as e:
-        module.fail_json(msg='Error removing permission from policy: {0}'.format(e))
-
-    return changed
+# def get_qualifier(module):
+#     """
+#     Returns the function qualifier as a version or alias or None.
+#
+#     :param module:
+#     :return:
+#     """
+#
+#     qualifier = None
+#     if module.params['version'] > 0:
+#         qualifier = str(module.params['version'])
+#     elif module.params['alias']:
+#         qualifier = str(module.params['alias'])
+#
+#     return qualifier
 
 
 def get_arn(module):
+    """
+
+    :param module:
+    :return:
+    """
 
     service_configs = {
         'topic': 'TopicConfigurations',
@@ -476,15 +384,15 @@ def state_management(module, aws):
 
         else:
             # add policy permission before creating the event notification (for Lambda only)
-            if module.params['add_permission']:
-                policy = dict(
-                    statement_id=config_id,
-                    action='lambda:InvokeFunction',
-                    principal='s3.amazonaws.com',
-                    source_arn='arn:aws:s3:::{0}'.format(bucket),
-                    source_account=aws.account_id,
-                )
-                assert_policy_state(module, aws, policy, present=True)
+            # if module.params['add_permission']:
+            #     policy = dict(
+            #         statement_id=config_id,
+            #         action='lambda:InvokeFunction',
+            #         principal='s3.amazonaws.com',
+            #         source_arn='arn:aws:s3:::{0}'.format(bucket),
+            #         source_account=aws.account_id,
+            #     )
+            #     assert_policy_state(module, aws, policy, present=True)
 
             # create s3 event notification
             current_configs.append(new_configuration)
@@ -515,12 +423,12 @@ def state_management(module, aws):
             except (ClientError, ParamValidationError, MissingParametersError) as e:
                 module.fail_json(msg='Error removing s3 source event notification for {0}: {1}'.format(service_arn, e))
 
-            # remove policy permission after removing the event notification (for Lambda only)
-            if module.params['add_permission']:
-                policy = dict(
-                    statement_id=config_id,
-                )
-                assert_policy_state(module, aws, policy, present=False)
+            # # remove policy permission after removing the event notification (for Lambda only)
+            # if module.params['add_permission']:
+            #     policy = dict(
+            #         statement_id=config_id,
+            #     )
+            #     assert_policy_state(module, aws, policy, present=False)
 
     return dict(changed=changed, ansible_facts=dict(s3_event=current_configs))
 
@@ -548,8 +456,7 @@ def main():
         topic_arn=dict(required=False, default=None, aliases=['topic', ]),
         queue_arn=dict(required=False, default=None, aliases=['queue', ]),
         lambda_function_arn=dict(required=False, default=None, aliases=['function_arn', 'lambda_arn']),
-        events=dict(type='list', required=True, default=None),
-        add_permission=dict(type='bool', required=False, default=None)
+        events=dict(type='list', required=True, default=None)
         )
     )
 
@@ -557,10 +464,7 @@ def main():
         argument_spec=argument_spec,
         supports_check_mode=True,
         required_together=[],
-        mutually_exclusive=[['topic_arn', 'queue_arn', 'lambda_function_arn'],
-                            ['add_permission', 'topic_arn'],
-                            ['add_permission', 'queue_arn']
-                            ]
+        mutually_exclusive=[['topic_arn', 'queue_arn', 'lambda_function_arn']]
     )
 
     # validate dependencies
