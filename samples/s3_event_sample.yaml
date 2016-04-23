@@ -3,13 +3,11 @@
   gather_facts: no
   vars:
     state: present
-    bucket: buzz-scanner
-    alias: Dev
   tasks:
   - name: S3 event notification
     s3_event:
       state: "{{ state | default('present') }}"
-      bucket: "{{ bucket }}:{{ alias }}"
+      bucket: buzz-scanner-bucket
       id: lambda-s3-myBucket-create-data-log
       lambda_function_arn: ingestData
       prefix: twitter
