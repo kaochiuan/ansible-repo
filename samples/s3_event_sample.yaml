@@ -7,15 +7,15 @@
   - name: S3 event notification
     s3_event:
       state: "{{ state | default('present') }}"
-      bucket: buzz-scanner-bucket
-      id: lambda-s3-myBucket-create-data-log
+      bucket: scanner-bucket
+      id: lambda-s3-myBucket-data-log
       lambda_function_arn: ingestData
       prefix: twitter
       suffix: log
       events:
       - s3:ObjectCreated:Put
 
-  - name: show source event cnfig
+  - name: show source event config
     debug: var=s3_event
 
 

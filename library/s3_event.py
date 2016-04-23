@@ -115,13 +115,26 @@ EXAMPLES = '''
   vars:
     state: present
   tasks:
+  - name: S3 event notification
+    s3_event:
+      state: "{{ state | default('present') }}"
+      bucket: scanner-bucket
+      id: lambda-s3-myBucket-data-log
+      lambda_function_arn: ingestData
+      prefix: twitter
+      suffix: log
+      events:
+      - s3:ObjectCreated:Put
+
+  - name: show source event config
+    debug: var=s3_event
 
 '''
 
 RETURN = '''
 ---
 s3_events:
-    description: list of dictionaries returned by the API describing S3 event mappings
+    description:
     returned: success
     type: list
 
@@ -234,7 +247,7 @@ def validate_params(module, aws):
         # validate function name
         if not re.search('^[\w\-:]+$', function_name):
             module.fail_json(
-                    msg='Function name {0} is invalid. Names must contain only alphanumeric characters and hyphens.'.format(function_name)
+                    msg='Function name {0} is invalid. Names must contain only alphanumeric characters, colons and hyphens.'.format(function_name)
             )
         if len(function_name) > 64:
             module.fail_json(msg='Function name "{0}" exceeds 64 character limit'.format(function_name))
@@ -243,11 +256,6 @@ def validate_params(module, aws):
         if not module.params['lambda_function_arn'].startswith('arn:aws:lambda:'):
             function_name = module.params['lambda_function_arn']
             module.params['lambda_function_arn'] = 'arn:aws:lambda:{0}:{1}:function:{2}'.format(aws.region, aws.account_id, function_name)
-
-        # qualifier = get_qualifier(module)
-        # if qualifier:
-        #     function_arn = module.params['lambda_function_arn']
-        #     module.params['lambda_function_arn'] = '{0}:{1}'.format(function_arn, qualifier)
 
     topic_arn = module.params.get('topic_arn')
     queue_arn = module.params.get('queue_arn')
