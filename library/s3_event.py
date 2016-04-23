@@ -255,23 +255,6 @@ def validate_params(module, aws):
     return
 
 
-# def get_qualifier(module):
-#     """
-#     Returns the function qualifier as a version or alias or None.
-#
-#     :param module:
-#     :return:
-#     """
-#
-#     qualifier = None
-#     if module.params['version'] > 0:
-#         qualifier = str(module.params['version'])
-#     elif module.params['alias']:
-#         qualifier = str(module.params['alias'])
-#
-#     return qualifier
-
-
 def get_arn(module):
     """
 
@@ -383,17 +366,6 @@ def state_management(module, aws):
                     module.fail_json(msg='Error updating s3 event notification for {0}: {1}'.format(service_arn, e))
 
         else:
-            # add policy permission before creating the event notification (for Lambda only)
-            # if module.params['add_permission']:
-            #     policy = dict(
-            #         statement_id=config_id,
-            #         action='lambda:InvokeFunction',
-            #         principal='s3.amazonaws.com',
-            #         source_arn='arn:aws:s3:::{0}'.format(bucket),
-            #         source_account=aws.account_id,
-            #     )
-            #     assert_policy_state(module, aws, policy, present=True)
-
             # create s3 event notification
             current_configs.append(new_configuration)
             facts[configurations] = current_configs
@@ -422,13 +394,6 @@ def state_management(module, aws):
                 changed = True
             except (ClientError, ParamValidationError, MissingParametersError) as e:
                 module.fail_json(msg='Error removing s3 source event notification for {0}: {1}'.format(service_arn, e))
-
-            # # remove policy permission after removing the event notification (for Lambda only)
-            # if module.params['add_permission']:
-            #     policy = dict(
-            #         statement_id=config_id,
-            #     )
-            #     assert_policy_state(module, aws, policy, present=False)
 
     return dict(changed=changed, ansible_facts=dict(s3_event=current_configs))
 
@@ -471,7 +436,7 @@ def main():
     if not HAS_BOTO3:
         module.fail_json(msg='Both boto3 & boto are required for this module.')
 
-    aws = AWSConnection(module, ['lambda', 's3', 'sns'])
+    aws = AWSConnection(module, ['s3'])
 
     # validate_params(module, aws)
 
