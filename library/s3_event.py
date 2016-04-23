@@ -81,7 +81,7 @@ options:
   queue_arn:
     description:
       - The name or ARN of the lambda function, including the alias/version suffix.
-        Mutually exclusive with C(topic_arn) and (lambda_function_arn).
+        Mutually exclusive with C(topic_arn) and C(lambda_function_arn).
     required: false
     default: none
     aliases: ['queue']
@@ -100,6 +100,10 @@ options:
     required: true
     default: none
 
+notes:
+    - Make sure the appropriate permissions are granted prior to creating an event notification. For example,
+      use the lambda_policy module to grant permissions to the S3 bucket if you want the specified event to trigger
+      a call to the lambda function.
 requirements:
     - boto3
 extends_documentation_fragment:
@@ -109,22 +113,45 @@ extends_documentation_fragment:
 
 EXAMPLES = '''
 ---
-# Simple example that creates a lambda event notification for an S3 bucket
+# Example that creates lambda event notifications for an S3 bucket
 - hosts: localhost
   gather_facts: no
   vars:
     state: present
+    bucket: myBucket
   tasks:
   - name: S3 event notification
     s3_event:
       state: "{{ state | default('present') }}"
-      bucket: scanner-bucket
+      bucket: "{{ bucket }}"
       id: lambda-s3-myBucket-data-log
       lambda_function_arn: ingestData
       prefix: twitter
       suffix: log
       events:
       - s3:ObjectCreated:Put
+
+  - name: S3 event notification for SNS
+    s3_event:
+      state: "{{ state | default('present') }}"
+      bucket: "{{ bucket }}"
+      id: lambda-s3-myBucket-delete-sns-log
+      topic_arn: arn:aws:sns:xx-east-1:123456789012:NotifyMe
+      prefix: twitter
+      suffix: log
+      events:
+      - s3:ObjectRemoved:Delete
+
+  - name: S3 event notification for SQS
+    s3_event:
+      state: "{{ state | default('present') }}"
+      bucket: "{{ bucket }}"
+      id: lambda-s3-myBucket-copy-sqs-log
+      topic_arn: myQueue
+      prefix: twitter
+      suffix: log
+      events:
+      - s3:ObjectCreated:Copy
 
   - name: show source event config
     debug: var=s3_event
@@ -133,10 +160,10 @@ EXAMPLES = '''
 
 RETURN = '''
 ---
-s3_events:
-    description:
+s3_event:
+    description: Dictionary of event notification configurations.
     returned: success
-    type: list
+    type: dict
 
 '''
 
@@ -159,7 +186,7 @@ class AWSConnection:
 
             self.resource_client = dict()
             if not resources:
-                resources = ['lambda']
+                resources = ['s3']
 
             resources.append('iam')
 
@@ -173,7 +200,7 @@ class AWSConnection:
 
             # if region is not provided, then get default profile/session region
             if not self.region:
-                self.region = self.resource_client['lambda'].meta.region_name
+                self.region = self.resource_client['s3'].meta.region_name
 
         except (ClientError, ParamValidationError, MissingParametersError) as e:
             ansible_obj.fail_json(msg="Unable to connect, authorize or access resource: {0}".format(e))
@@ -184,7 +211,7 @@ class AWSConnection:
         except (ClientError, ValueError, KeyError, IndexError):
             self.account_id = ''
 
-    def client(self, resource='lambda'):
+    def client(self, resource='s3'):
         return self.resource_client[resource]
 
 
@@ -253,12 +280,20 @@ def validate_params(module, aws):
             module.fail_json(msg='Function name "{0}" exceeds 64 character limit'.format(function_name))
 
         # check if 'function_name' needs to be expanded in full ARN format
-        if not module.params['lambda_function_arn'].startswith('arn:aws:lambda:'):
-            function_name = module.params['lambda_function_arn']
+        if not function_name.startswith('arn:aws:lambda:'):
             module.params['lambda_function_arn'] = 'arn:aws:lambda:{0}:{1}:function:{2}'.format(aws.region, aws.account_id, function_name)
 
     topic_arn = module.params.get('topic_arn')
+    if topic_arn:
+        # check if 'topic_arn' needs to be expanded in full ARN format
+        if not topic_arn.startswith('arn:aws:sns:'):
+            module.params['topic_arn'] = 'arn:aws:sns:{0}:{1}:{2}'.format(aws.region, aws.account_id, topic_arn)
+
     queue_arn = module.params.get('queue_arn')
+    if queue_arn:
+        # check if 'queue_arn' needs to be expanded in full ARN format
+        if not queue_arn.startswith('arn:aws:sqs:'):
+            module.params['queue_arn'] = 'arn:aws:sqs:{0}:{1}:{2}'.format(aws.region, aws.account_id, queue_arn)
 
     return
 
@@ -331,7 +366,8 @@ def state_management(module, aws):
     matching_id_config = dict()
 
     if configurations in facts:
-        current_configs = facts.pop(configurations)
+        current_configs = facts[configurations]
+        # current_configs = facts.pop(configurations)
 
         for config in current_configs:
             if config['Id'] == config_id:
@@ -403,7 +439,7 @@ def state_management(module, aws):
             except (ClientError, ParamValidationError, MissingParametersError) as e:
                 module.fail_json(msg='Error removing s3 source event notification for {0}: {1}'.format(service_arn, e))
 
-    return dict(changed=changed, ansible_facts=dict(s3_event=current_configs))
+    return dict(changed=changed, ansible_facts=dict(s3_event=facts))
 
 
 # ---------------------------------------------------------------------------------------------------
@@ -446,7 +482,7 @@ def main():
 
     aws = AWSConnection(module, ['s3'])
 
-    # validate_params(module, aws)
+    validate_params(module, aws)
 
     results = state_management(module, aws)
 
