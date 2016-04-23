@@ -147,7 +147,7 @@ EXAMPLES = '''
       state: "{{ state | default('present') }}"
       bucket: "{{ bucket }}"
       id: lambda-s3-myBucket-copy-sqs-log
-      topic_arn: myQueue
+      queue_arn: myQueue
       prefix: twitter
       suffix: log
       events:

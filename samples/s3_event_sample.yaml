@@ -7,7 +7,7 @@
   - name: S3 event notification
     s3_event:
       state: "{{ state | default('present') }}"
-      bucket: scanner-bucket
+      bucket: "{{ bucket }}"
       id: lambda-s3-myBucket-data-log
       lambda_function_arn: ingestData
       prefix: twitter
@@ -15,8 +15,27 @@
       events:
       - s3:ObjectCreated:Put
 
+  - name: S3 event notification for SNS
+    s3_event:
+      state: "{{ state | default('present') }}"
+      bucket: "{{ bucket }}"
+      id: lambda-s3-myBucket-delete-sns-log
+      topic_arn: arn:aws:sns:xx-east-1:123456789012:NotifyMe
+      prefix: twitter
+      suffix: log
+      events:
+      - s3:ObjectRemoved:Delete
+
+  - name: S3 event notification for SQS
+    s3_event:
+      state: "{{ state | default('present') }}"
+      bucket: "{{ bucket }}"
+      id: lambda-s3-myBucket-copy-sqs-log
+      queue_arn: myQueue
+      prefix: twitter
+      suffix: log
+      events:
+      - s3:ObjectCreated:Copy
+
   - name: show source event config
     debug: var=s3_event
-
-
-

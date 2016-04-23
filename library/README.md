@@ -10,7 +10,58 @@ These modules have been moved from other projects.
 
 ## Modules
 
-### lambda_event:
+### s3_event:
+
+Use to create, update or delete S3 event notifications for SNS, SQS or Lambda.
+
+##### Example Playbook
+```yaml
+# Example that creates lambda event notifications for an S3 bucket
+- hosts: localhost
+  gather_facts: no
+  vars:
+    state: present
+    bucket: myBucket
+  tasks:
+  - name: S3 event notification
+    s3_event:
+      state: "{{ state | default('present') }}"
+      bucket: "{{ bucket }}"
+      id: lambda-s3-myBucket-data-log
+      lambda_function_arn: ingestData
+      prefix: twitter
+      suffix: log
+      events:
+      - s3:ObjectCreated:Put
+
+  - name: S3 event notification for SNS
+    s3_event:
+      state: "{{ state | default('present') }}"
+      bucket: "{{ bucket }}"
+      id: lambda-s3-myBucket-delete-sns-log
+      topic_arn: arn:aws:sns:xx-east-1:123456789012:NotifyMe
+      prefix: twitter
+      suffix: log
+      events:
+      - s3:ObjectRemoved:Delete
+
+  - name: S3 event notification for SQS
+    s3_event:
+      state: "{{ state | default('present') }}"
+      bucket: "{{ bucket }}"
+      id: lambda-s3-myBucket-copy-sqs-log
+      queue_arn: myQueue
+      prefix: twitter
+      suffix: log
+      events:
+      - s3:ObjectCreated:Copy
+
+  - name: show source event config
+    debug: var=s3_event
+
+```
+
+### lambda_event: _(Deprecated)_
 
 Use to create, update or delete lambda function source event mappings, which include Kinesis/DynamoDB streams, S3 events and SNS topics.
 
@@ -21,23 +72,6 @@ Use to create, update or delete lambda function source event mappings, which inc
   vars:
     state: present
   tasks:
-  - name: S3 event mapping
-    lambda_event:
-      state: "{{ state | default('present') }}"
-      event_source: s3
-      function_name: ingestData
-      alias: Dev
-      source_params:
-        id: lambda-s3-myBucket-create-data-log
-        bucket: buzz-scanner
-        prefix: twitter
-        suffix: log
-        events:
-        - s3:ObjectCreated:Put
-
-  - name: show source event config
-    debug: var=lambda_s3_events
-
   - name: DynamoDB stream event mapping
     lambda_event:
       state: "{{ state | default('present') }}"
@@ -53,30 +87,34 @@ Use to create, update or delete lambda function source event mappings, which inc
   - name: show source event config
     debug: var=lambda_stream_events
 
-  - name: SNS event mapping
-    lambda_event:
-      state: "{{ state | default('present') }}"
-      event_source: sns
-      function_name: SaveMessage
-      alias: Prod
-      source_params:
-        id: lambda-sns-topic-notify
-        topic_arn: arn:aws:sns:us-east-1:123456789012:sns-some-topic
-
-  - name: show SNS event mapping
-    debug: var=lambda_sns_event
-
 ```
 
 ### iam:
 
 Modified *iam* core module which allows specification of a custom trust policy. View pull request [here](https://github.com/ansible/ansible-modules-core/pull/3264)
 
+##### Example Playbook
+```yaml
+- hosts: localhost
+  gather_facts: no
+  vars:
+    state: present
+  tasks:
+  # Example of role with custom trust policy for Lambda service
+  - name: Create IAM role with custom trust relationship
+    iam:
+      iam_type: role
+      name: AAALambdaTestRole
+      state: present
+      trust_policy:
+        Version: '2012-10-17'
+        Statement:
+        - Action: sts:AssumeRole
+          Effect: Allow
+          Principal:
+            Service: lambda.amazonaws.com
 
-### s3_event:
-
-Work in progress -- creating separate module for S3 events from Lambda_event module.
-
+```
 
 ## Installation
 
