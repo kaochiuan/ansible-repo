@@ -91,7 +91,7 @@ Use to create, update or delete lambda function source event mappings, which inc
 
 ### iam:
 
-Modified *iam* core module which allows specification of a custom trust policy. View pull request [here](https://github.com/ansible/ansible-modules-core/pull/3264)
+Modified *iam* core module which allows specification of a custom trust policy. Now included in ansible-modules-core.
 
 ##### Example Playbook
 ```yaml
