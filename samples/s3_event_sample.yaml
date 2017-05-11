@@ -4,13 +4,14 @@
   gather_facts: no
   vars:
     state: present
+    bucket: test-bucket-287364876
   tasks:
   - name: S3 event notification
     s3_event:
       state: "{{ state | default('present') }}"
       bucket: "{{ bucket }}"
       id: lambda-s3-myBucket-data-log
-      lambda_function_arn: ingestData
+      lambda_function_arn: arn:ingestData123456789012345678901234567890123456789012345678901234-123456789001234567890123456789012345678901234567890123456789
       prefix: twitter
       suffix: log
       events:
